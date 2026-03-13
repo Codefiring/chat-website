@@ -48,13 +48,13 @@ The application uses a **hybrid persistence model** that splits data between per
 - User accounts (username, password_hash)
 - Room definitions (name, creator_id)
 - Room memberships (many-to-many relationship)
+- Message history (id, room_id, user_id, username, content, timestamp)
 
 **In-Memory (models.py ChatStore):**
-- Message history (deque with maxlen=100 per room)
 - Online users (session_id → OnlineUser mapping)
 - Typing indicators (room_id → Set[user_id])
 
-This design means **messages are ephemeral** (lost on restart) while **rooms and users persist**. When modifying message-related features, work with `models.py`. When modifying user/room management, work with `database.py`.
+Messages are **persisted to the database** and loaded when entering a room. The in-memory deque (maxlen=100) serves as a cache for the current session. When modifying message-related features, work with both `database.py` (persistence) and `models.py` (in-memory cache). When modifying user/room management, work with `database.py`.
 
 ### Request Flow
 
@@ -115,12 +115,20 @@ db.close()
 
 Always close sessions in WebSocket handlers to prevent connection leaks.
 
-### Message History Limitations
+### Message Persistence
 
-Messages use `collections.deque(maxlen=100)` which automatically evicts oldest messages. This is intentional—there is no persistent message storage. If adding message persistence, you'll need to:
-1. Create a `messages` table in `database.py`
-2. Modify `chat_store.add_message()` to also write to database
-3. Update `enter_room` handler to load from database instead of in-memory deque
+Messages are persisted to the SQLite database and loaded when users enter a room:
+- Messages table stores: id, room_id, user_id, username, content, timestamp
+- On room entry, the last 100 messages are loaded from the database
+- New messages are saved to both the database and in-memory deque
+- The in-memory deque (maxlen=100) serves as a cache for the current session
+- Messages survive server restarts and page refreshes
+
+When adding message-related features:
+1. Update the Message model in `database.py` if changing schema
+2. Modify `save_message()` in `database.py` for persistence logic
+3. Update `chat_store.add_message()` in `models.py` for in-memory cache
+4. Update the `enter_room` handler in `app.py` to load messages correctly
 
 ### Terminal UI Disguise
 
@@ -130,6 +138,47 @@ The frontend is designed to look like a debugging console, not a chat app. When 
 - Keep command-line interface (no buttons or modern UI elements)
 - Display messages with timestamps in `[HH:MM:SS]` format
 - Use terminal-style output (append lines, no chat bubbles)
+
+### Confirmation Flow Pattern
+
+For multi-step operations requiring user confirmation (like room deletion), use state flags instead of overriding input handlers:
+
+**Pattern:**
+```javascript
+// In command handler:
+if (command === '/delete-room') {
+    print('Are you sure? Type "yes" to confirm:');
+    state.awaitingDeleteConfirmation = true;
+    return;
+}
+
+// At the start of the same handler:
+if (state.awaitingDeleteConfirmation) {
+    state.awaitingDeleteConfirmation = false;
+    if (command.toLowerCase() === 'yes') {
+        // Perform the action
+    } else {
+        print('Cancelled');
+    }
+    return;
+}
+```
+
+**Why this pattern:**
+- Overriding `input.onkeydown` conflicts with the normal command processing flow
+- State flags integrate cleanly with the existing command routing
+- Easier to debug and maintain
+
+### Cache-Busting Headers
+
+The root endpoint (`/`) serves `static/index.html` with cache-busting headers to prevent browser caching issues:
+```python
+response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+response.headers["Pragma"] = "no-cache"
+response.headers["Expires"] = "0"
+```
+
+This ensures users always get the latest frontend code without manual hard refresh.
 
 ## Security Considerations
 
