@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Debug Console v1.0.0</title>
     <style>
+        :root {
+            /* Default theme: green */
+            --bg-color: #0a0a0a;
+            --text-color: #00ff00;
+            --border-color: #00ff00;
+            --error-color: #ff0000;
+            --success-color: #00ff00;
+            --info-color: #00aaff;
+            --timestamp-color: #888888;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,8 +23,8 @@
         }
 
         body {
-            background-color: #0a0a0a;
-            color: #00ff00;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             font-family: 'Courier New', Courier, monospace;
             font-size: 14px;
             line-height: 1.5;
@@ -29,7 +40,7 @@
         }
 
         #header {
-            border-bottom: 1px solid #00ff00;
+            border-bottom: 1px solid var(--border-color);
             padding-bottom: 10px;
             margin-bottom: 10px;
         }
@@ -46,11 +57,11 @@
         }
 
         #output::-webkit-scrollbar-track {
-            background: #0a0a0a;
+            background: var(--bg-color);
         }
 
         #output::-webkit-scrollbar-thumb {
-            background: #00ff00;
+            background: var(--text-color);
         }
 
         .line {
@@ -58,23 +69,23 @@
         }
 
         .prompt {
-            color: #00ff00;
+            color: var(--text-color);
         }
 
         .error {
-            color: #ff0000;
+            color: var(--error-color);
         }
 
         .success {
-            color: #00ff00;
+            color: var(--success-color);
         }
 
         .info {
-            color: #00aaff;
+            color: var(--info-color);
         }
 
         .timestamp {
-            color: #888888;
+            color: var(--timestamp-color);
         }
 
         #input-line {
@@ -90,7 +101,7 @@
             flex: 1;
             background: transparent;
             border: none;
-            color: #00ff00;
+            color: var(--text-color);
             font-family: 'Courier New', Courier, monospace;
             font-size: 14px;
             outline: none;
@@ -135,8 +146,107 @@
             typingUsers: [],
             commandHistory: [],
             historyIndex: -1,
-            socket: null
+            socket: null,
+            currentTheme: localStorage.getItem('theme') || 'green'
         };
+
+        // Theme definitions
+        const themes = {
+            green: {
+                name: 'Green Terminal',
+                bgColor: '#0a0a0a',
+                textColor: '#00ff00',
+                borderColor: '#00ff00',
+                errorColor: '#ff0000',
+                successColor: '#00ff00',
+                infoColor: '#00aaff',
+                timestampColor: '#888888'
+            },
+            amber: {
+                name: 'Amber CRT',
+                bgColor: '#0a0a0a',
+                textColor: '#ffb000',
+                borderColor: '#ffb000',
+                errorColor: '#ff4444',
+                successColor: '#ffb000',
+                infoColor: '#ffd700',
+                timestampColor: '#996600'
+            },
+            blue: {
+                name: 'Blue Terminal',
+                bgColor: '#0a0a0a',
+                textColor: '#00aaff',
+                borderColor: '#00aaff',
+                errorColor: '#ff4444',
+                successColor: '#00ff88',
+                infoColor: '#88ddff',
+                timestampColor: '#6688aa'
+            },
+            white: {
+                name: 'High Contrast',
+                bgColor: '#000000',
+                textColor: '#ffffff',
+                borderColor: '#ffffff',
+                errorColor: '#ff4444',
+                successColor: '#00ff00',
+                infoColor: '#00aaff',
+                timestampColor: '#aaaaaa'
+            },
+            purple: {
+                name: 'Cyberpunk',
+                bgColor: '#0a0a0a',
+                textColor: '#dd00ff',
+                borderColor: '#dd00ff',
+                errorColor: '#ff0066',
+                successColor: '#00ff88',
+                infoColor: '#00ddff',
+                timestampColor: '#aa66cc'
+            },
+            red: {
+                name: 'Red Alert',
+                bgColor: '#0a0a0a',
+                textColor: '#ff3333',
+                borderColor: '#ff3333',
+                errorColor: '#ff0000',
+                successColor: '#ff6666',
+                infoColor: '#ff9999',
+                timestampColor: '#aa4444'
+            }
+        };
+
+        // Theme functions
+        function applyTheme(themeName) {
+            const theme = themes[themeName];
+            if (!theme) {
+                printError(`Theme "${themeName}" not found`);
+                return false;
+            }
+
+            const root = document.documentElement;
+            root.style.setProperty('--bg-color', theme.bgColor);
+            root.style.setProperty('--text-color', theme.textColor);
+            root.style.setProperty('--border-color', theme.borderColor);
+            root.style.setProperty('--error-color', theme.errorColor);
+            root.style.setProperty('--success-color', theme.successColor);
+            root.style.setProperty('--info-color', theme.infoColor);
+            root.style.setProperty('--timestamp-color', theme.timestampColor);
+
+            state.currentTheme = themeName;
+            localStorage.setItem('theme', themeName);
+            return true;
+        }
+
+        function listThemes() {
+            print('');
+            print('Available themes:');
+            Object.keys(themes).forEach(key => {
+                const current = key === state.currentTheme ? ' [CURRENT]' : '';
+                print(`  ${key.padEnd(10)} - ${themes[key].name}${current}`);
+            });
+            print('');
+            print('Usage: /theme <name>');
+            print('');
+        }
 
         // DOM elements
         const output = document.getElementById('output');
@@ -273,6 +383,15 @@
                 printSuccess(`Logged in as ${username}`);
                 connectSocket();
                 showRoomList();
+            } else if (command === '/theme') {
+                if (args.length === 0) {
+                    listThemes();
+                } else {
+                    const themeName = args[0].toLowerCase();
+                    if (applyTheme(themeName)) {
+                        printSuccess(`Theme changed to ${themes[themeName].name}`);
+                    }
+                }
             } else if (command === '/help') {
                 showAuthHelp();
             } else {
@@ -308,6 +427,15 @@
                 showOnlineUsers();
             } else if (command === '/logout') {
                 logout();
+            } else if (command === '/theme') {
+                if (args.length === 0) {
+                    listThemes();
+                } else {
+                    const themeName = args[0].toLowerCase();
+                    if (applyTheme(themeName)) {
+                        printSuccess(`Theme changed to ${themes[themeName].name}`);
+                    }
+                }
             } else if (command === '/help') {
                 showRoomListHelp();
             } else {
@@ -320,6 +448,15 @@
                 leaveRoom();
             } else if (command === '/settings') {
                 showSettings();
+            } else if (command === '/theme') {
+                if (args.length === 0) {
+                    listThemes();
+                } else {
+                    const themeName = args[0].toLowerCase();
+                    if (applyTheme(themeName)) {
+                        printSuccess(`Theme changed to ${themes[themeName].name}`);
+                    }
+                }
             } else if (command === '/help') {
                 showChatHelp();
             } else if (command.startsWith('/')) {
@@ -376,6 +513,15 @@
             } else if (command === '/back') {
                 state.currentScreen = 'chat';
                 showChatScreen();
+            } else if (command === '/theme') {
+                if (args.length === 0) {
+                    listThemes();
+                } else {
+                    const themeName = args[0].toLowerCase();
+                    if (applyTheme(themeName)) {
+                        printSuccess(`Theme changed to ${themes[themeName].name}`);
+                    }
+                }
             } else if (command === '/help') {
                 showSettingsHelp();
             } else {
@@ -394,6 +540,7 @@
             print('Commands:');
             print('  /register <username> <password> - Create new account');
             print('  /login <username> <password>    - Login to existing account');
+            print('  /theme [name]                   - Change color theme');
             print('  /help                           - Show this help');
             print('');
         }
@@ -403,6 +550,7 @@
             print('Available commands:');
             print('  /register <username> <password> - Create new account');
             print('  /login <username> <password>    - Login to existing account');
+            print('  /theme [name]                   - Change color theme');
             print('  /help                           - Show this help');
             print('');
         }
@@ -429,6 +577,7 @@
             print('  /list               - Refresh channel list');
             print('  /list-users         - Show online users');
             print('  /logout             - Logout');
+            print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
         }
@@ -441,6 +590,7 @@
             print('  /list               - Refresh channel list');
             print('  /list-users         - Show online users');
             print('  /logout             - Logout');
+            print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
         }
@@ -474,7 +624,7 @@
             }
 
             print('');
-            print('Commands: /leave /settings /help');
+            print('Commands: /leave /settings /theme /help');
             print('');
         }
 
@@ -483,6 +633,7 @@
             print('Available commands:');
             print('  /leave              - Leave channel');
             print('  /settings           - Channel settings (admin only)');
+            print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('  <message>           - Send message (just type without /)');
             print('');
@@ -510,6 +661,7 @@
             print('  /kick <username>    - Remove user from channel');
             print('  /delete-room        - Delete this channel');
             print('  /back               - Back to chat');
+            print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
         }
@@ -521,6 +673,7 @@
             print('  /kick <username>    - Remove user from channel');
             print('  /delete-room        - Delete this channel');
             print('  /back               - Back to chat');
+            print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
         }
@@ -797,6 +950,9 @@
 
         // Auto-login on page load
         async function init() {
+            // Apply saved theme
+            applyTheme(state.currentTheme);
+
             if (state.token) {
                 try {
                     const data = await apiCall('/api/verify', 'GET', null, true);
