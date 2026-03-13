@@ -50,8 +50,8 @@ class ChatStore:
         # room_id -> Set of user_ids currently typing
         self.typing_users: Dict[int, Set[int]] = {}
 
-    def add_message(self, room_id: int, user_id: int, username: str, content: str) -> Message:
-        """Add a message to a room's history"""
+    def add_message(self, room_id: int, user_id: int, username: str, content: str, db=None) -> Message:
+        """Add a message to a room's history and optionally save to database"""
         if room_id not in self.room_messages:
             self.room_messages[room_id] = deque(maxlen=100)
 
@@ -64,6 +64,12 @@ class ChatStore:
             room_id=room_id
         )
         self.room_messages[room_id].append(message)
+
+        # Save to database if db session provided
+        if db:
+            from database import create_message
+            create_message(db, message.id, room_id, user_id, username, content, message.timestamp)
+
         return message
 
     def get_room_messages(self, room_id: int) -> list:

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Table
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -41,6 +41,20 @@ class Room(Base):
     # Relationships
     creator = relationship("User", back_populates="created_rooms")
     members = relationship("User", secondary=room_members, back_populates="rooms")
+    messages = relationship("Message", back_populates="room", cascade="all, delete-orphan")
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(String, primary_key=True)  # UUID string
+    room_id = Column(Integer, ForeignKey('rooms.id', ondelete='CASCADE'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    username = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    room = relationship("Room", back_populates="messages")
 
 # Database initialization
 def init_db():
@@ -126,3 +140,21 @@ def is_room_member(db, room_id: int, user_id: int):
     if room and user:
         return user in room.members
     return False
+
+# Message functions
+def create_message(db, message_id: str, room_id: int, user_id: int, username: str, content: str, timestamp: datetime):
+    message = Message(
+        id=message_id,
+        room_id=room_id,
+        user_id=user_id,
+        username=username,
+        content=content,
+        timestamp=timestamp
+    )
+    db.add(message)
+    db.commit()
+    return message
+
+def get_room_messages(db, room_id: int, limit: int = 100):
+    """Get the last N messages for a room, ordered by timestamp"""
+    return db.query(Message).filter(Message.room_id == room_id).order_by(Message.timestamp.desc()).limit(limit).all()

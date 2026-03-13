@@ -331,11 +331,31 @@ async def enter_room(sid, data):
     # Get room details
     room = get_room_by_id(db, room_id)
     members = get_room_members(db, room_id)
+
+    # Load messages from database
+    from database import get_room_messages as get_db_messages
+    db_messages = get_db_messages(db, room_id, limit=100)
     db.close()
 
     if not room:
         await sio.emit('error', {'message': 'Room not found'}, room=sid)
         return
+
+    # Populate in-memory cache with database messages (in correct order)
+    if room_id not in chat_store.room_messages:
+        chat_store.room_messages[room_id] = deque(maxlen=100)
+        # Add messages in chronological order (oldest first)
+        for db_msg in reversed(db_messages):
+            from models import Message
+            msg = Message(
+                id=db_msg.id,
+                user_id=db_msg.user_id,
+                username=db_msg.username,
+                content=db_msg.content,
+                timestamp=db_msg.timestamp,
+                room_id=db_msg.room_id
+            )
+            chat_store.room_messages[room_id].append(msg)
 
     # Leave previous room if in one
     if user.current_room_id:
@@ -379,8 +399,10 @@ async def send_message(sid, data):
         await sio.emit('error', {'message': 'Not in a room'}, room=sid)
         return
 
-    # Add message
-    message = chat_store.add_message(user.current_room_id, user.user_id, user.username, content)
+    # Add message to in-memory and database
+    db = next(get_db())
+    message = chat_store.add_message(user.current_room_id, user.user_id, user.username, content, db)
+    db.close()
 
     # Broadcast to room
     await sio.emit('new_message', message.to_dict(), room=f"room_{user.current_room_id}")
