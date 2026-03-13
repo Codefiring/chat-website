@@ -208,7 +208,7 @@ def remove_user_from_room(room_id: int, member_id: int, token: str, db: Session 
     return {"message": "User removed successfully"}
 
 @app.delete("/api/rooms/{room_id}")
-def delete_room_endpoint(room_id: int, token: str, db: Session = Depends(get_db)):
+async def delete_room_endpoint(room_id: int, token: str, db: Session = Depends(get_db)):
     user_id = verify_token(token)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -220,6 +220,12 @@ def delete_room_endpoint(room_id: int, token: str, db: Session = Depends(get_db)
     # Check if user is creator
     if room.creator_id != user_id:
         raise HTTPException(status_code=403, detail="Only creator can delete room")
+
+    # Notify all users in the room via WebSocket
+    await sio.emit('room_deleted', {
+        'room_id': room_id,
+        'room_name': room.name
+    }, room=f"room_{room_id}")
 
     # Delete room
     delete_room(db, room_id)

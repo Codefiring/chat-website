@@ -717,6 +717,14 @@
                 state.onlineUsers = data.users;
             });
 
+            state.socket.on('room_deleted', async (data) => {
+                printError(`Channel "${data.room_name}" has been deleted by admin`);
+                state.currentRoom = null;
+                state.currentScreen = 'room_list';
+                await loadRooms();
+                showRoomList();
+            });
+
             state.socket.on('error', (data) => {
                 printError(data.message);
             });
