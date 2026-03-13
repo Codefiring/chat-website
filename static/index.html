@@ -623,8 +623,12 @@
 
                     if (confirmation === 'yes') {
                         await apiCall(`/api/rooms/${state.currentRoom.id}`, 'DELETE', null, true);
-                        // Don't show success message or reload here
-                        // The room_deleted WebSocket event will handle everything
+                        // Clear current room and redirect to room list
+                        // The WebSocket event will also fire, but this ensures immediate feedback
+                        state.currentRoom = null;
+                        state.currentScreen = 'room_list';
+                        await loadRooms();
+                        showRoomList();
                     } else {
                         print('Deletion cancelled');
                         showSettings();
