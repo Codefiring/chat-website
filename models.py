@@ -89,7 +89,7 @@ class ChatStore:
     def get_online_users_list(self) -> list:
         """Get list of all online users"""
         return [
-            {"user_id": user.user_id, "username": user.username}
+            {"id": user.user_id, "username": user.username}
             for user in self.online_users.values()
         ]
 

@@ -192,8 +192,15 @@
 
             const response = await fetch(url, options);
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Request failed');
+                let errorMessage = 'Request failed';
+                try {
+                    const error = await response.json();
+                    errorMessage = error.detail || errorMessage;
+                } catch (e) {
+                    // Response is not JSON (e.g., HTML error page)
+                    errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
             }
             return await response.json();
         }
@@ -496,7 +503,7 @@
                 print('  No users online');
             } else {
                 state.onlineUsers.forEach(user => {
-                    const isSelf = user.user_id === state.userId;
+                    const isSelf = user.id === state.userId;
                     const tag = isSelf ? ' (you)' : '';
                     print(`  - ${user.username}${tag}`);
                 });
@@ -529,7 +536,7 @@
             // Show online users and ask for invites
             print('');
             print('Online users (enter numbers to invite, separated by spaces, or press enter to skip):');
-            const otherUsers = state.onlineUsers.filter(u => u.user_id !== state.userId);
+            const otherUsers = state.onlineUsers.filter(u => u.id !== state.userId);
             otherUsers.forEach((user, index) => {
                 print(`  [${index + 1}] ${user.username}`);
             });
@@ -549,7 +556,7 @@
                         const indices = inviteInput.split(/\s+/).map(n => parseInt(n) - 1);
                         invitedUserIds = indices
                             .filter(i => i >= 0 && i < otherUsers.length)
-                            .map(i => otherUsers[i].user_id);
+                            .map(i => otherUsers[i].id);
                     }
 
                     await apiCall('/api/rooms', 'POST', { name, invited_user_ids: invitedUserIds }, true);
@@ -570,7 +577,7 @@
                 return;
             }
 
-            await apiCall(`/api/rooms/${state.currentRoom.id}/invite`, 'POST', { user_id: user.user_id }, true);
+            await apiCall(`/api/rooms/${state.currentRoom.id}/invite`, 'POST', { user_id: user.id }, true);
             printSuccess(`Invited ${username} to channel`);
 
             // Reload room details
