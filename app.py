@@ -222,17 +222,21 @@ async def delete_room_endpoint(room_id: int, token: str, db: Session = Depends(g
     if room.creator_id != user_id:
         raise HTTPException(status_code=403, detail="Only creator can delete room")
 
-    # Store room name before deletion
+    # Store room name and get members before deletion
     room_name = room.name
+    members = get_room_members(db, room_id)
+    member_ids = [m.id for m in members]
 
     # Delete room from database first
     delete_room(db, room_id)
 
-    # Then notify all users in the room via WebSocket
-    await sio.emit('room_deleted', {
-        'room_id': room_id,
-        'room_name': room_name
-    }, room=f"room_{room_id}")
+    # Notify all online users who were members of this room
+    for online_user in chat_store.online_users.values():
+        if online_user.user_id in member_ids:
+            await sio.emit('room_deleted', {
+                'room_id': room_id,
+                'room_name': room_name
+            }, room=online_user.session_id)
 
     return {"message": "Room deleted successfully"}
 
