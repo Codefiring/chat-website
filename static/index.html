@@ -221,10 +221,13 @@
             state.commandHistory.push(input);
             state.historyIndex = state.commandHistory.length;
 
-            // Echo command
-            print(`> ${input}`, 'prompt');
-
             const { command, args } = parseCommand(input);
+
+            // Echo command (but not regular chat messages)
+            const isRegularMessage = state.currentScreen === 'chat' && !command.startsWith('/');
+            if (!isRegularMessage) {
+                print(`> ${input}`, 'prompt');
+            }
 
             try {
                 if (state.currentScreen === 'auth') {
