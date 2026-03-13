@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Debug Console v1.0.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #0a0a0a;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow: hidden;
+        }
+
+        #terminal {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        #header {
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        #output {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding-right: 10px;
+        }
+
+        #output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #output::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        #output::-webkit-scrollbar-thumb {
+            background: #00ff00;
+        }
+
+        .line {
+            margin-bottom: 5px;
+        }
+
+        .prompt {
+            color: #00ff00;
+        }
+
+        .error {
+            color: #ff0000;
+        }
+
+        .success {
+            color: #00ff00;
+        }
+
+        .info {
+            color: #00aaff;
+        }
+
+        .timestamp {
+            color: #888888;
+        }
+
+        #input-line {
+            display: flex;
+            align-items: center;
+        }
+
+        #prompt-symbol {
+            margin-right: 5px;
+        }
+
+        #input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .cursor {
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal">
+        <div id="header">
+            <div>SYSTEM DEBUG CONSOLE v1.0.0</div>
+            <div>================================</div>
+        </div>
+        <div id="output"></div>
+        <div id="input-line">
+            <span id="prompt-symbol">&gt;</span>
+            <input type="text" id="input" autocomplete="off" autofocus>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        // State
+        let state = {
+            token: localStorage.getItem('token'),
+            userId: null,
+            username: null,
+            currentScreen: 'auth', // auth, room_list, chat, settings
+            currentRoom: null,
+            rooms: [],
+            onlineUsers: [],
+            roomMembers: [],
+            messages: [],
+            typingUsers: [],
+            commandHistory: [],
+            historyIndex: -1,
+            socket: null
+        };
+
+        // DOM elements
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+
+        // Utility functions
+        function print(text, className = '') {
+            const line = document.createElement('div');
+            line.className = `line ${className}`;
+            line.textContent = text;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function printError(text) {
+            print(`[ERROR] ${text}`, 'error');
+        }
+
+        function printSuccess(text) {
+            print(`[OK] ${text}`, 'success');
+        }
+
+        function printInfo(text) {
+            print(`[INFO] ${text}`, 'info');
+        }
+
+        function clear() {
+            output.innerHTML = '';
+        }
+
+        function getTimestamp() {
+            const now = new Date();
+            return `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
+        }
+
+        // API functions
+        async function apiCall(endpoint, method = 'GET', body = null, includeToken = false) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+
+            let url = endpoint;
+            if (includeToken && state.token) {
+                url += (url.includes('?') ? '&' : '?') + `token=${state.token}`;
+            }
+
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Request failed');
+            }
+            return await response.json();
+        }
+
+        // Command parser
+        function parseCommand(input) {
+            const parts = input.trim().split(/\s+/);
+            const command = parts[0].toLowerCase();
+            const args = parts.slice(1);
+            return { command, args };
+        }
+
+        // Command handlers
+        async function handleCommand(input) {
+            if (!input.trim()) return;
+
+            // Add to history
+            state.commandHistory.push(input);
+            state.historyIndex = state.commandHistory.length;
+
+            // Echo command
+            print(`> ${input}`, 'prompt');
+
+            const { command, args } = parseCommand(input);
+
+            try {
+                if (state.currentScreen === 'auth') {
+                    await handleAuthCommand(command, args);
+                } else if (state.currentScreen === 'room_list') {
+                    await handleRoomListCommand(command, args);
+                } else if (state.currentScreen === 'chat') {
+                    await handleChatCommand(command, args, input);
+                } else if (state.currentScreen === 'settings') {
+                    await handleSettingsCommand(command, args);
+                }
+            } catch (error) {
+                printError(error.message);
+            }
+        }
+
+        async function handleAuthCommand(command, args) {
+            if (command === '/register') {
+                if (args.length < 2) {
+                    printError('Usage: /register <username> <password>');
+                    return;
+                }
+                const [username, password] = args;
+                const data = await apiCall('/api/register', 'POST', { username, password });
+                state.token = data.token;
+                state.userId = data.user_id;
+                state.username = data.username;
+                localStorage.setItem('token', data.token);
+                printSuccess(`Registered as ${username}`);
+                connectSocket();
+                showRoomList();
+            } else if (command === '/login') {
+                if (args.length < 2) {
+                    printError('Usage: /login <username> <password>');
+                    return;
+                }
+                const [username, password] = args;
+                const data = await apiCall('/api/login', 'POST', { username, password });
+                state.token = data.token;
+                state.userId = data.user_id;
+                state.username = data.username;
+                localStorage.setItem('token', data.token);
+                printSuccess(`Logged in as ${username}`);
+                connectSocket();
+                showRoomList();
+            } else if (command === '/help') {
+                showAuthHelp();
+            } else {
+                printError('Unknown command. Type /help for available commands.');
+            }
+        }
+
+        async function handleRoomListCommand(command, args) {
+            if (command === '/list') {
+                await loadRooms();
+                showRoomList();
+            } else if (command === '/join') {
+                if (args.length < 1) {
+                    printError('Usage: /join <number>');
+                    return;
+                }
+                const index = parseInt(args[0]) - 1;
+                if (index < 0 || index >= state.rooms.length) {
+                    printError('Invalid room number');
+                    return;
+                }
+                const room = state.rooms[index];
+                joinRoom(room.id);
+            } else if (command === '/create') {
+                if (args.length < 1) {
+                    printError('Usage: /create <room_name>');
+                    return;
+                }
+                const roomName = args.join(' ');
+                await createRoom(roomName);
+            } else if (command === '/list-users') {
+                await loadOnlineUsers();
+                showOnlineUsers();
+            } else if (command === '/logout') {
+                logout();
+            } else if (command === '/help') {
+                showRoomListHelp();
+            } else {
+                printError('Unknown command. Type /help for available commands.');
+            }
+        }
+
+        async function handleChatCommand(command, args, fullInput) {
+            if (command === '/leave') {
+                leaveRoom();
+            } else if (command === '/settings') {
+                showSettings();
+            } else if (command === '/help') {
+                showChatHelp();
+            } else if (command.startsWith('/')) {
+                printError('Unknown command. Type /help for available commands.');
+            } else {
+                // Regular message
+                sendMessage(fullInput);
+            }
+        }
+
+        async function handleSettingsCommand(command, args) {
+            if (command === '/invite') {
+                if (args.length < 1) {
+                    printError('Usage: /invite <username>');
+                    return;
+                }
+                const username = args[0];
+                await inviteUser(username);
+            } else if (command === '/kick') {
+                if (args.length < 1) {
+                    printError('Usage: /kick <username>');
+                    return;
+                }
+                const username = args[0];
+                await kickUser(username);
+            } else if (command === '/delete-room') {
+                await deleteRoom();
+            } else if (command === '/back') {
+                state.currentScreen = 'chat';
+                showChatScreen();
+            } else if (command === '/help') {
+                showSettingsHelp();
+            } else {
+                printError('Unknown command. Type /help for available commands.');
+            }
+        }
+
+        // Screen functions
+        function showAuthScreen() {
+            clear();
+            print('SYSTEM DEBUG CONSOLE v1.0.0');
+            print('================================');
+            print('');
+            print('Authentication required.');
+            print('');
+            print('Commands:');
+            print('  /register <username> <password> - Create new account');
+            print('  /login <username> <password>    - Login to existing account');
+            print('  /help                           - Show this help');
+            print('');
+        }
+
+        function showAuthHelp() {
+            print('');
+            print('Available commands:');
+            print('  /register <username> <password> - Create new account');
+            print('  /login <username> <password>    - Login to existing account');
+            print('  /help                           - Show this help');
+            print('');
+        }
+
+        async function showRoomList() {
+            state.currentScreen = 'room_list';
+            await loadRooms();
+            clear();
+            print(`Connected as: ${state.username}`);
+            print('================================');
+            print('');
+            if (state.rooms.length === 0) {
+                print('No channels available.');
+            } else {
+                print('Available channels:');
+                state.rooms.forEach((room, index) => {
+                    print(`  [${index + 1}] ${room.name} (${room.members_count} members)`);
+                });
+            }
+            print('');
+            print('Commands:');
+            print('  /join <number>      - Join a channel');
+            print('  /create <name>      - Create new channel');
+            print('  /list               - Refresh channel list');
+            print('  /list-users         - Show online users');
+            print('  /logout             - Logout');
+            print('  /help               - Show help');
+            print('');
+        }
+
+        function showRoomListHelp() {
+            print('');
+            print('Available commands:');
+            print('  /join <number>      - Join a channel');
+            print('  /create <name>      - Create new channel');
+            print('  /list               - Refresh channel list');
+            print('  /list-users         - Show online users');
+            print('  /logout             - Logout');
+            print('  /help               - Show help');
+            print('');
+        }
+
+        function showChatScreen() {
+            clear();
+            if (!state.currentRoom) return;
+
+            const isCreator = state.currentRoom.creator_id === state.userId;
+            const creatorTag = isCreator ? ' [ADMIN]' : '';
+
+            print(`Channel: ${state.currentRoom.name} | Members: ${state.roomMembers.length}${creatorTag}`);
+            print('================================');
+            print('');
+
+            // Show message history
+            state.messages.forEach(msg => {
+                const time = new Date(msg.timestamp);
+                const timeStr = `[${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}]`;
+                print(`${timeStr} ${msg.username}: ${msg.content}`);
+            });
+
+            // Show typing indicators
+            if (state.typingUsers.length > 0) {
+                const typingUsernames = state.typingUsers
+                    .map(uid => state.roomMembers.find(m => m.id === uid)?.username)
+                    .filter(Boolean);
+                if (typingUsernames.length > 0) {
+                    print(`${typingUsernames.join(', ')} is typing...`, 'info');
+                }
+            }
+
+            print('');
+            print('Commands: /leave /settings /help');
+            print('');
+        }
+
+        function showChatHelp() {
+            print('');
+            print('Available commands:');
+            print('  /leave              - Leave channel');
+            print('  /settings           - Channel settings (admin only)');
+            print('  /help               - Show help');
+            print('  <message>           - Send message (just type without /)');
+            print('');
+        }
+
+        function showSettings() {
+            if (!state.currentRoom || state.currentRoom.creator_id !== state.userId) {
+                printError('Only channel admin can access settings');
+                return;
+            }
+
+            state.currentScreen = 'settings';
+            clear();
+            print(`Channel: ${state.currentRoom.name} (admin: ${state.username})`);
+            print('================================');
+            print('');
+            print('Members:');
+            state.roomMembers.forEach(member => {
+                const tag = member.id === state.currentRoom.creator_id ? ' [ADMIN]' : '';
+                print(`  - ${member.username}${tag}`);
+            });
+            print('');
+            print('Commands:');
+            print('  /invite <username>  - Invite user to channel');
+            print('  /kick <username>    - Remove user from channel');
+            print('  /delete-room        - Delete this channel');
+            print('  /back               - Back to chat');
+            print('  /help               - Show help');
+            print('');
+        }
+
+        function showSettingsHelp() {
+            print('');
+            print('Available commands:');
+            print('  /invite <username>  - Invite user to channel');
+            print('  /kick <username>    - Remove user from channel');
+            print('  /delete-room        - Delete this channel');
+            print('  /back               - Back to chat');
+            print('  /help               - Show help');
+            print('');
+        }
+
+        function showOnlineUsers() {
+            print('');
+            print('Online users:');
+            if (state.onlineUsers.length === 0) {
+                print('  No users online');
+            } else {
+                state.onlineUsers.forEach(user => {
+                    const isSelf = user.user_id === state.userId;
+                    const tag = isSelf ? ' (you)' : '';
+                    print(`  - ${user.username}${tag}`);
+                });
+            }
+            print('');
+        }
+
+        // API action functions
+        async function loadRooms() {
+            state.rooms = await apiCall('/api/rooms', 'GET', null, true);
+        }
+
+        async function loadOnlineUsers() {
+            state.onlineUsers = await apiCall('/api/users/online', 'GET', null, true);
+        }
+
+        async function createRoom(name) {
+            // Load online users first
+            await loadOnlineUsers();
+
+            if (state.onlineUsers.length <= 1) {
+                // Just create room without inviting anyone
+                await apiCall('/api/rooms', 'POST', { name, invited_user_ids: [] }, true);
+                printSuccess(`Channel "${name}" created`);
+                await loadRooms();
+                showRoomList();
+                return;
+            }
+
+            // Show online users and ask for invites
+            print('');
+            print('Online users (enter numbers to invite, separated by spaces, or press enter to skip):');
+            const otherUsers = state.onlineUsers.filter(u => u.user_id !== state.userId);
+            otherUsers.forEach((user, index) => {
+                print(`  [${index + 1}] ${user.username}`);
+            });
+            print('');
+            print('Enter user numbers to invite (e.g., "1 3" or just press enter):');
+
+            // Wait for next input
+            const originalHandler = input.onkeydown;
+            input.onkeydown = async function(e) {
+                if (e.key === 'Enter') {
+                    const inviteInput = input.value.trim();
+                    input.value = '';
+                    print(`> ${inviteInput}`, 'prompt');
+
+                    let invitedUserIds = [];
+                    if (inviteInput) {
+                        const indices = inviteInput.split(/\s+/).map(n => parseInt(n) - 1);
+                        invitedUserIds = indices
+                            .filter(i => i >= 0 && i < otherUsers.length)
+                            .map(i => otherUsers[i].user_id);
+                    }
+
+                    await apiCall('/api/rooms', 'POST', { name, invited_user_ids: invitedUserIds }, true);
+                    printSuccess(`Channel "${name}" created`);
+                    await loadRooms();
+                    showRoomList();
+
+                    // Restore original handler
+                    input.onkeydown = originalHandler;
+                }
+            };
+        }
+
+        async function inviteUser(username) {
+            const user = state.onlineUsers.find(u => u.username === username);
+            if (!user) {
+                printError(`User "${username}" not found or not online`);
+                return;
+            }
+
+            await apiCall(`/api/rooms/${state.currentRoom.id}/invite`, 'POST', { user_id: user.user_id }, true);
+            printSuccess(`Invited ${username} to channel`);
+
+            // Reload room details
+            const roomData = await apiCall(`/api/rooms/${state.currentRoom.id}`, 'GET', null, true);
+            state.roomMembers = roomData.members;
+            showSettings();
+        }
+
+        async function kickUser(username) {
+            const member = state.roomMembers.find(m => m.username === username);
+            if (!member) {
+                printError(`User "${username}" not found in channel`);
+                return;
+            }
+
+            if (member.id === state.currentRoom.creator_id) {
+                printError('Cannot remove channel admin');
+                return;
+            }
+
+            await apiCall(`/api/rooms/${state.currentRoom.id}/members/${member.id}`, 'DELETE', null, true);
+            printSuccess(`Removed ${username} from channel`);
+
+            // Reload room details
+            const roomData = await apiCall(`/api/rooms/${state.currentRoom.id}`, 'GET', null, true);
+            state.roomMembers = roomData.members;
+            showSettings();
+        }
+
+        async function deleteRoom() {
+            print('');
+            print('Are you sure you want to delete this channel? Type "yes" to confirm:');
+
+            const originalHandler = input.onkeydown;
+            input.onkeydown = async function(e) {
+                if (e.key === 'Enter') {
+                    const confirmation = input.value.trim().toLowerCase();
+                    input.value = '';
+                    print(`> ${confirmation}`, 'prompt');
+
+                    if (confirmation === 'yes') {
+                        await apiCall(`/api/rooms/${state.currentRoom.id}`, 'DELETE', null, true);
+                        printSuccess('Channel deleted');
+                        state.currentRoom = null;
+                        state.socket.emit('leave_room');
+                        await loadRooms();
+                        showRoomList();
+                    } else {
+                        print('Deletion cancelled');
+                        showSettings();
+                    }
+
+                    input.onkeydown = originalHandler;
+                }
+            };
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            state.token = null;
+            state.userId = null;
+            state.username = null;
+            state.currentScreen = 'auth';
+            if (state.socket) {
+                state.socket.disconnect();
+                state.socket = null;
+            }
+            showAuthScreen();
+        }
+
+        // Socket.IO functions
+        function connectSocket() {
+            state.socket = io({
+                transports: ['websocket']
+            });
+
+            state.socket.on('connect', () => {
+                printInfo('Connected to server');
+                state.socket.emit('authenticate', { token: state.token });
+            });
+
+            state.socket.on('authenticated', (data) => {
+                printSuccess('Authenticated');
+            });
+
+            state.socket.on('auth_error', (data) => {
+                printError(`Authentication failed: ${data.message}`);
+                logout();
+            });
+
+            state.socket.on('room_entered', (data) => {
+                state.currentRoom = data.room;
+                state.roomMembers = data.members;
+                state.messages = data.messages;
+                state.typingUsers = [];
+                state.currentScreen = 'chat';
+                showChatScreen();
+            });
+
+            state.socket.on('new_message', (message) => {
+                state.messages.push(message);
+                const time = new Date(message.timestamp);
+                const timeStr = `[${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}]`;
+                print(`${timeStr} ${message.username}: ${message.content}`);
+            });
+
+            state.socket.on('user_entered', (data) => {
+                printInfo(`${data.username} joined the channel`);
+                // Reload members
+                if (state.currentRoom) {
+                    apiCall(`/api/rooms/${state.currentRoom.id}`, 'GET', null, true)
+                        .then(roomData => {
+                            state.roomMembers = roomData.members;
+                        });
+                }
+            });
+
+            state.socket.on('user_left', (data) => {
+                printInfo(`${data.username} left the channel`);
+                // Reload members
+                if (state.currentRoom) {
+                    apiCall(`/api/rooms/${state.currentRoom.id}`, 'GET', null, true)
+                        .then(roomData => {
+                            state.roomMembers = roomData.members;
+                        });
+                }
+            });
+
+            state.socket.on('typing_update', (data) => {
+                state.typingUsers = data.typing_user_ids.filter(uid => uid !== state.userId);
+            });
+
+            state.socket.on('online_users_update', (data) => {
+                state.onlineUsers = data.users;
+            });
+
+            state.socket.on('error', (data) => {
+                printError(data.message);
+            });
+
+            state.socket.on('disconnect', () => {
+                printError('Disconnected from server');
+            });
+        }
+
+        function joinRoom(roomId) {
+            state.socket.emit('enter_room', { room_id: roomId });
+        }
+
+        function leaveRoom() {
+            state.socket.emit('leave_room');
+            state.currentRoom = null;
+            state.currentScreen = 'room_list';
+            showRoomList();
+        }
+
+        let typingTimeout = null;
+        function sendMessage(content) {
+            state.socket.emit('send_message', { content });
+
+            // Stop typing indicator
+            if (typingTimeout) {
+                clearTimeout(typingTimeout);
+                typingTimeout = null;
+            }
+            state.socket.emit('typing_stop');
+        }
+
+        // Input handling
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const value = input.value;
+                input.value = '';
+                handleCommand(value);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (state.historyIndex > 0) {
+                    state.historyIndex--;
+                    input.value = state.commandHistory[state.historyIndex];
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (state.historyIndex < state.commandHistory.length - 1) {
+                    state.historyIndex++;
+                    input.value = state.commandHistory[state.historyIndex];
+                } else {
+                    state.historyIndex = state.commandHistory.length;
+                    input.value = '';
+                }
+            }
+        });
+
+        // Typing indicator for chat
+        input.addEventListener('input', () => {
+            if (state.currentScreen === 'chat' && state.socket && !input.value.startsWith('/')) {
+                state.socket.emit('typing_start');
+
+                if (typingTimeout) {
+                    clearTimeout(typingTimeout);
+                }
+
+                typingTimeout = setTimeout(() => {
+                    state.socket.emit('typing_stop');
+                    typingTimeout = null;
+                }, 2000);
+            }
+        });
+
+        // Auto-login on page load
+        async function init() {
+            if (state.token) {
+                try {
+                    const data = await apiCall('/api/verify', 'GET', null, true);
+                    state.userId = data.user_id;
+                    state.username = data.username;
+                    printSuccess(`Auto-logged in as ${state.username}`);
+                    connectSocket();
+                    showRoomList();
+                } catch (error) {
+                    localStorage.removeItem('token');
+                    state.token = null;
+                    showAuthScreen();
+                }
+            } else {
+                showAuthScreen();
+            }
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>
