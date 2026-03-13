@@ -82,6 +82,14 @@ def get_user_by_username(db, username: str):
 def get_user_by_id(db, user_id: int):
     return db.query(User).filter(User.id == user_id).first()
 
+def update_user_password(db, user_id: int, new_password_hash: str):
+    user = get_user_by_id(db, user_id)
+    if user:
+        user.password_hash = new_password_hash
+        db.commit()
+        return True
+    return False
+
 # Room functions
 def create_room(db, name: str, creator_id: int):
     room = Room(name=name, creator_id=creator_id)

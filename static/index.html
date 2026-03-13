@@ -147,7 +147,11 @@
             commandHistory: [],
             historyIndex: -1,
             socket: null,
-            currentTheme: localStorage.getItem('theme') || 'green'
+            currentTheme: localStorage.getItem('theme') || 'green',
+            // Password change flow
+            changingPassword: false,
+            passwordChangeStep: null, // 'old', 'new', 'confirm'
+            passwordChangeData: {}
         };
 
         // Theme definitions
@@ -248,6 +252,55 @@
             print('');
         }
 
+        // Password change functions
+        function startPasswordChange() {
+            state.changingPassword = true;
+            state.passwordChangeStep = 'old';
+            state.passwordChangeData = {};
+            print('');
+            print('Enter your current password:');
+            print('');
+        }
+
+        async function handlePasswordChangeInput(input) {
+            if (state.passwordChangeStep === 'old') {
+                state.passwordChangeData.oldPassword = input;
+                state.passwordChangeStep = 'new';
+                print('Enter your new password:');
+                print('');
+            } else if (state.passwordChangeStep === 'new') {
+                state.passwordChangeData.newPassword = input;
+                state.passwordChangeStep = 'confirm';
+                print('Confirm your new password:');
+                print('');
+            } else if (state.passwordChangeStep === 'confirm') {
+                const confirmPassword = input;
+
+                if (confirmPassword !== state.passwordChangeData.newPassword) {
+                    printError('Passwords do not match. Password change cancelled.');
+                    state.changingPassword = false;
+                    state.passwordChangeStep = null;
+                    state.passwordChangeData = {};
+                    return;
+                }
+
+                // Call API to change password
+                try {
+                    await apiCall('/api/change-password', 'POST', {
+                        old_password: state.passwordChangeData.oldPassword,
+                        new_password: state.passwordChangeData.newPassword
+                    }, true);
+                    printSuccess('Password changed successfully');
+                } catch (error) {
+                    printError(`Failed to change password: ${error.message}`);
+                }
+
+                state.changingPassword = false;
+                state.passwordChangeStep = null;
+                state.passwordChangeData = {};
+            }
+        }
+
         // DOM elements
         const output = document.getElementById('output');
         const input = document.getElementById('input');
@@ -330,6 +383,13 @@
             // Add to history
             state.commandHistory.push(input);
             state.historyIndex = state.commandHistory.length;
+
+            // Check if we're in password change mode
+            if (state.changingPassword) {
+                print(`> ${'*'.repeat(input.length)}`, 'prompt'); // Hide password input
+                await handlePasswordChangeInput(input);
+                return;
+            }
 
             const { command, args } = parseCommand(input);
 
@@ -436,6 +496,8 @@
                         printSuccess(`Theme changed to ${themes[themeName].name}`);
                     }
                 }
+            } else if (command === '/passwd') {
+                startPasswordChange();
             } else if (command === '/help') {
                 showRoomListHelp();
             } else {
@@ -457,6 +519,8 @@
                         printSuccess(`Theme changed to ${themes[themeName].name}`);
                     }
                 }
+            } else if (command === '/passwd') {
+                startPasswordChange();
             } else if (command === '/help') {
                 showChatHelp();
             } else if (command.startsWith('/')) {
@@ -522,6 +586,8 @@
                         printSuccess(`Theme changed to ${themes[themeName].name}`);
                     }
                 }
+            } else if (command === '/passwd') {
+                startPasswordChange();
             } else if (command === '/help') {
                 showSettingsHelp();
             } else {
@@ -577,6 +643,7 @@
             print('  /list               - Refresh channel list');
             print('  /list-users         - Show online users');
             print('  /logout             - Logout');
+            print('  /passwd             - Change password');
             print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
@@ -590,6 +657,7 @@
             print('  /list               - Refresh channel list');
             print('  /list-users         - Show online users');
             print('  /logout             - Logout');
+            print('  /passwd             - Change password');
             print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
@@ -624,7 +692,7 @@
             }
 
             print('');
-            print('Commands: /leave /settings /theme /help');
+            print('Commands: /leave /settings /passwd /theme /help');
             print('');
         }
 
@@ -633,6 +701,7 @@
             print('Available commands:');
             print('  /leave              - Leave channel');
             print('  /settings           - Channel settings (admin only)');
+            print('  /passwd             - Change password');
             print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('  <message>           - Send message (just type without /)');
@@ -661,6 +730,7 @@
             print('  /kick <username>    - Remove user from channel');
             print('  /delete-room        - Delete this channel');
             print('  /back               - Back to chat');
+            print('  /passwd             - Change password');
             print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');
@@ -673,6 +743,7 @@
             print('  /kick <username>    - Remove user from channel');
             print('  /delete-room        - Delete this channel');
             print('  /back               - Back to chat');
+            print('  /passwd             - Change password');
             print('  /theme [name]       - Change color theme');
             print('  /help               - Show help');
             print('');

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from database import init_db, get_db, create_user, get_user_by_username, get_user_by_id
 from database import create_room, get_user_rooms, get_room_by_id, delete_room
 from database import add_room_member, remove_room_member, get_room_members, is_room_member
+from database import update_user_password
 from auth import hash_password, verify_password, create_access_token, verify_token
 from models import chat_store
 
@@ -32,6 +33,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
 
 class CreateRoomRequest(BaseModel):
     name: str
@@ -100,6 +105,29 @@ def verify(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="User not found")
 
     return {"user_id": user.id, "username": user.username}
+
+@app.post("/api/change-password")
+def change_password(request: ChangePasswordRequest, token: str, db: Session = Depends(get_db)):
+    # Verify token
+    user_id = verify_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Get user
+    user = get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # Verify old password
+    if not verify_password(request.old_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid old password")
+
+    # Update password
+    new_password_hash = hash_password(request.new_password)
+    if not update_user_password(db, user_id, new_password_hash):
+        raise HTTPException(status_code=500, detail="Failed to update password")
+
+    return {"message": "Password changed successfully"}
 
 @app.get("/api/rooms", response_model=List[RoomResponse])
 def get_rooms(token: str, db: Session = Depends(get_db)):
