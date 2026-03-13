@@ -623,11 +623,8 @@
 
                     if (confirmation === 'yes') {
                         await apiCall(`/api/rooms/${state.currentRoom.id}`, 'DELETE', null, true);
-                        printSuccess('Channel deleted');
-                        state.currentRoom = null;
-                        state.socket.emit('leave_room');
-                        await loadRooms();
-                        showRoomList();
+                        // Don't show success message or reload here
+                        // The room_deleted WebSocket event will handle everything
                     } else {
                         print('Deletion cancelled');
                         showSettings();

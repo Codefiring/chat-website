@@ -221,14 +221,17 @@ async def delete_room_endpoint(room_id: int, token: str, db: Session = Depends(g
     if room.creator_id != user_id:
         raise HTTPException(status_code=403, detail="Only creator can delete room")
 
-    # Notify all users in the room via WebSocket
+    # Store room name before deletion
+    room_name = room.name
+
+    # Delete room from database first
+    delete_room(db, room_id)
+
+    # Then notify all users in the room via WebSocket
     await sio.emit('room_deleted', {
         'room_id': room_id,
-        'room_name': room.name
+        'room_name': room_name
     }, room=f"room_{room_id}")
-
-    # Delete room
-    delete_room(db, room_id)
 
     return {"message": "Room deleted successfully"}
 
