@@ -331,6 +331,29 @@
         }
 
         async function handleSettingsCommand(command, args) {
+            // Check if we're waiting for delete confirmation
+            if (state.awaitingDeleteConfirmation) {
+                state.awaitingDeleteConfirmation = false;
+                const confirmation = command.toLowerCase();
+
+                if (confirmation === 'yes' || confirmation === '/yes') {
+                    try {
+                        await apiCall(`/api/rooms/${state.currentRoom.id}`, 'DELETE', null, true);
+                        printSuccess('Channel deleted');
+                        state.currentRoom = null;
+                        state.currentScreen = 'room_list';
+                        await loadRooms();
+                        showRoomList();
+                    } catch (error) {
+                        printError(`Failed to delete room: ${error.message}`);
+                    }
+                } else {
+                    print('Deletion cancelled');
+                    showSettings();
+                }
+                return;
+            }
+
             if (command === '/invite') {
                 if (args.length < 1) {
                     printError('Usage: /invite <username>');
@@ -346,7 +369,10 @@
                 const username = args[0];
                 await kickUser(username);
             } else if (command === '/delete-room') {
-                await deleteRoom();
+                print('');
+                print('Are you sure you want to delete this channel? Type \"yes\" to confirm:');
+                print('');
+                state.awaitingDeleteConfirmation = true;
             } else if (command === '/back') {
                 state.currentScreen = 'chat';
                 showChatScreen();
@@ -608,39 +634,6 @@
             const roomData = await apiCall(`/api/rooms/${state.currentRoom.id}`, 'GET', null, true);
             state.roomMembers = roomData.members;
             showSettings();
-        }
-
-        async function deleteRoom() {
-            print('');
-            print('Are you sure you want to delete this channel? Type "yes" to confirm:');
-
-            const originalHandler = input.onkeydown;
-            input.onkeydown = async function(e) {
-                if (e.key === 'Enter') {
-                    const confirmation = input.value.trim().toLowerCase();
-                    input.value = '';
-                    print(`> ${confirmation}`, 'prompt');
-
-                    if (confirmation === 'yes') {
-                        try {
-                            await apiCall(`/api/rooms/${state.currentRoom.id}`, 'DELETE', null, true);
-                            printSuccess('Channel deleted');
-                            // Clear current room and redirect to room list
-                            state.currentRoom = null;
-                            state.currentScreen = 'room_list';
-                            await loadRooms();
-                            showRoomList();
-                        } catch (error) {
-                            printError(`Failed to delete room: ${error.message}`);
-                        }
-                    } else {
-                        print('Deletion cancelled');
-                        showSettings();
-                    }
-
-                    input.onkeydown = originalHandler;
-                }
-            };
         }
 
         function logout() {
