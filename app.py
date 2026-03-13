@@ -449,7 +449,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 def read_root():
-    return FileResponse("static/index.html")
+    response = FileResponse("static/index.html")
+    # Disable caching to always serve the latest version
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 # Export the ASGI app
 app = socket_app
