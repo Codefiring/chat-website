@@ -229,5 +229,8 @@ This ensures users always get the latest frontend code without manual hard refre
 
 **Modifying database schema:**
 1. Update SQLAlchemy models in `database.py`
-2. Delete `chat.db` file (no migrations configured)
-3. Restart server to recreate tables via `init_db()`
+2. Write a migration in `migrate.py` using `sqlite3.connect("chat.db")` and `ALTER TABLE` statements
+3. Run `python migrate.py` to apply the migration without losing data
+4. Restart the server
+
+If starting fresh (no data to preserve), you can still delete `chat.db` and restart — `init_db()` will recreate all tables.
