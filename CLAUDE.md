@@ -133,11 +133,31 @@ When adding message-related features:
 ### Terminal UI Disguise
 
 The frontend is designed to look like a debugging console, not a chat app. When modifying the UI:
-- Maintain black background (#0a0a0a) and green text (#00ff00)
+- Colors are defined as CSS variables (`--primary-color`, `--secondary-color`, `--bg-color`, etc.) — do not hardcode hex values
 - Use monospace font (Courier New)
 - Keep command-line interface (no buttons or modern UI elements)
 - Display messages with timestamps in `[HH:MM:SS]` format
 - Use terminal-style output (append lines, no chat bubbles)
+
+### Color Theme System
+
+Six themes are available and switchable at runtime via `/theme <name>`: `green` (default), `amber`, `blue`, `white`, `purple`, `red`.
+
+- CSS variables are swapped on `<body>` to change themes; no page reload needed
+- Theme preference is saved to `localStorage` under the key `terminalTheme` and applied on page load
+- The `/theme` command is available on all screens (auth, room_list, chat, settings)
+- When adding new styled elements, always use CSS variables (`var(--primary-color)`) instead of hardcoded colors
+
+### Password Change Flow
+
+Users can change their password from any authenticated screen with `/passwd`. The flow is multi-step:
+
+1. Prompt for old password (hidden with asterisks)
+2. Prompt for new password (hidden)
+3. Prompt to confirm new password (hidden)
+4. POST to `/api/change-password` with `{token, old_password, new_password}`
+
+The backend (`database.py`: `update_user_password()`) verifies the old password via bcrypt before updating. State flags (`state.awaitingOldPassword`, `state.awaitingNewPassword`, `state.awaitingConfirmPassword`) drive the multi-step input, following the Confirmation Flow Pattern.
 
 ### Confirmation Flow Pattern
 
