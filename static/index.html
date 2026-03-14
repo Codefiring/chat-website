@@ -336,6 +336,18 @@
             output.innerHTML = '';
         }
 
+        function printImage(msg, timeStr) {
+            const line = document.createElement('div');
+            line.className = 'line';
+            line.textContent = `${timeStr} ${msg.username}: `;
+            const img = document.createElement('img');
+            img.src = msg.image_url;
+            img.style.cssText = 'max-width:400px; max-height:300px; display:block; margin-top:4px; border:1px solid var(--primary-color)';
+            line.appendChild(img);
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
         function getTimestamp() {
             const now = new Date();
             return `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
@@ -684,7 +696,11 @@
             state.messages.forEach(msg => {
                 const time = new Date(msg.timestamp);
                 const timeStr = `[${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}]`;
-                print(`${timeStr} ${msg.username}: ${msg.content}`);
+                if (msg.image_url) {
+                    printImage(msg, timeStr);
+                } else {
+                    print(`${timeStr} ${msg.username}: ${msg.content}`);
+                }
             });
 
             // Show typing indicators
@@ -912,7 +928,11 @@
                 state.messages.push(message);
                 const time = new Date(message.timestamp);
                 const timeStr = `[${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}]`;
-                print(`${timeStr} ${message.username}: ${message.content}`);
+                if (message.image_url) {
+                    printImage(message, timeStr);
+                } else {
+                    print(`${timeStr} ${message.username}: ${message.content}`);
+                }
             });
 
             state.socket.on('user_entered', (data) => {
@@ -1029,6 +1049,36 @@
                     state.socket.emit('typing_stop');
                     typingTimeout = null;
                 }, 2000);
+            }
+        });
+
+        // Clipboard image paste handler
+        input.addEventListener('paste', async (e) => {
+            if (state.currentScreen !== 'chat' || !state.socket) return;
+
+            const items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const blob = item.getAsFile();
+                    if (!blob) return;
+
+                    print('[uploading image...]', 'prompt');
+                    const formData = new FormData();
+                    formData.append('token', state.token);
+                    formData.append('file', blob, 'clipboard.' + item.type.split('/')[1]);
+
+                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                    if (!res.ok) {
+                        printError('Image upload failed');
+                        return;
+                    }
+                    const { url } = await res.json();
+                    state.socket.emit('send_message', { content: '', image_url: url });
+                    return;
+                }
             }
         });
 

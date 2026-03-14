@@ -52,6 +52,7 @@ class Message(Base):
     username = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    image_url = Column(String, nullable=True)
 
     # Relationships
     room = relationship("Room", back_populates="messages")
@@ -150,14 +151,15 @@ def is_room_member(db, room_id: int, user_id: int):
     return False
 
 # Message functions
-def create_message(db, message_id: str, room_id: int, user_id: int, username: str, content: str, timestamp: datetime):
+def create_message(db, message_id: str, room_id: int, user_id: int, username: str, content: str, timestamp: datetime, image_url: str = None):
     message = Message(
         id=message_id,
         room_id=room_id,
         user_id=user_id,
         username=username,
         content=content,
-        timestamp=timestamp
+        timestamp=timestamp,
+        image_url=image_url
     )
     db.add(message)
     db.commit()

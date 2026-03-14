@@ -1,11 +1,16 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from collections import deque
 import socketio
+import aiofiles
+import os
+import uuid
 from sqlalchemy.orm import Session
+
+os.makedirs("static/uploads", exist_ok=True)
 
 # Import our modules
 from database import init_db, get_db, create_user, get_user_by_username, get_user_by_id
@@ -276,6 +281,25 @@ def get_online_users(token: str):
 
     return chat_store.get_online_users_list()
 
+@app.post("/api/upload")
+async def upload_image(token: str = Form(...), file: UploadFile = File(...)):
+    user_id = verify_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image uploads are allowed")
+
+    ext = file.content_type.split("/")[1]
+    filename = f"{uuid.uuid4()}.{ext}"
+    filepath = f"static/uploads/{filename}"
+
+    async with aiofiles.open(filepath, 'wb') as f:
+        content = await file.read()
+        await f.write(content)
+
+    return {"url": f"/uploads/{filename}"}
+
 # Socket.IO Event Handlers
 
 @sio.event
@@ -386,7 +410,8 @@ async def enter_room(sid, data):
                 username=db_msg.username,
                 content=db_msg.content,
                 timestamp=db_msg.timestamp,
-                room_id=db_msg.room_id
+                room_id=db_msg.room_id,
+                image_url=db_msg.image_url
             )
             chat_store.room_messages[room_id].append(msg)
 
@@ -421,8 +446,10 @@ async def enter_room(sid, data):
 
 @sio.event
 async def send_message(sid, data):
-    content = data.get('content')
-    if not content:
+    content = data.get('content', '')
+    image_url = data.get('image_url')
+
+    if not content and not image_url:
         await sio.emit('error', {'message': 'Message content required'}, room=sid)
         return
 
@@ -434,7 +461,7 @@ async def send_message(sid, data):
 
     # Add message to in-memory and database
     db = next(get_db())
-    message = chat_store.add_message(user.current_room_id, user.user_id, user.username, content, db)
+    message = chat_store.add_message(user.current_room_id, user.user_id, user.username, content, db, image_url=image_url)
     db.close()
 
     # Broadcast to room
@@ -473,6 +500,7 @@ async def leave_room(sid):
         user.current_room_id = None
 
 # Mount static files
+app.mount("/uploads", StaticFiles(directory="static/uploads"), name="uploads")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")

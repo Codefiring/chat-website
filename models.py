@@ -26,6 +26,7 @@ class Message:
     content: str
     timestamp: datetime
     room_id: int
+    image_url: str = None
 
     def to_dict(self):
         return {
@@ -34,7 +35,8 @@ class Message:
             "username": self.username,
             "content": self.content,
             "timestamp": self.timestamp.isoformat(),
-            "room_id": self.room_id
+            "room_id": self.room_id,
+            "image_url": self.image_url
         }
 
 class ChatStore:
@@ -50,7 +52,7 @@ class ChatStore:
         # room_id -> Set of user_ids currently typing
         self.typing_users: Dict[int, Set[int]] = {}
 
-    def add_message(self, room_id: int, user_id: int, username: str, content: str, db=None) -> Message:
+    def add_message(self, room_id: int, user_id: int, username: str, content: str, db=None, image_url: str = None) -> Message:
         """Add a message to a room's history and optionally save to database"""
         if room_id not in self.room_messages:
             self.room_messages[room_id] = deque(maxlen=100)
@@ -61,14 +63,15 @@ class ChatStore:
             username=username,
             content=content,
             timestamp=datetime.utcnow(),
-            room_id=room_id
+            room_id=room_id,
+            image_url=image_url
         )
         self.room_messages[room_id].append(message)
 
         # Save to database if db session provided
         if db:
             from database import create_message
-            create_message(db, message.id, room_id, user_id, username, content, message.timestamp)
+            create_message(db, message.id, room_id, user_id, username, content, message.timestamp, image_url)
 
         return message
 
